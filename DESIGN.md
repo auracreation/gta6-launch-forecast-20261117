@@ -1,0 +1,13 @@
+# Launch-day Twitch forecast
+
+Intent: produce a deterministic, valid GTA VI hourly probabilistic forecast with independently validated performance and an official practice score below 0.145928. The future final cannot be verified before the recorded launch day.
+
+Approaches: compare weighted empirical launch trajectories, regularized log-space regression, and parametric normal/Student tails. A scenario mixture is the empirical distribution of whole launch curves, with similarity weights learned by grouped validation. Choose by independent events, not leaderboard feedback. Complex boosting is deferred unless simpler methods leave a demonstrated gap: only 37 usable launches and standard-library inference are available.
+
+Architecture: main.py owns input validation, cutoff-safe features, fitting and predictions. research.py creates leave-one-event-out cases from supplied analogs, scores using exact ln pinball, and runs ablations and a chronological holdout. tests.py checks metric worked example, exclusion of target outcomes, sparse/zero data, quantile bounds, deterministic files and timestamp cutoff. No download or model call at inference.
+
+Trust boundaries: input id never controls output path; output uses input filename. Read only points strictly before checkpoint for target features. Exclude all target-name analogs; do not use outcome-bearing unlock notes or practice labels in features. Comparables' historical full trajectories are legitimate training labels, never the target's own future. GTA premiere is not a launch. Include provenance, and distinguish exchangeable LOO from historical as-of validation.
+
+Official constraints: Python3.13, standard library, 1CPU,1024MB,64PIDs,8s/case. Read MAKEFUN_INPUT_DIR or /input, write MAKEFUN_OUTPUT_DIR or /output. Exactly23 hours2..24, five finite nondecreasing q in (0,1e9], output <=65536 bytes. Loss=mean of 2*max(tau*d,(tau-1)*d), d=ln(max(1,y))-ln(q); equal hour and quantile weights. Coverage90 inclusive; typical miss=100*expm1(mean absolute log median error). No log1p or extra normalization. No network inference. Public new GitHub repository, MIT, signed entry, unchanged native agent transcripts including audits. Account currently has3 attempts today. Entries close2026-11-19T01:00Z; final outcomes later. Last submission counts unless final pick is set.
+
+Calls made autonomously under the user's execute-and-submit authorization: use Python standard library; implement inline; use fresh read-only reviewers; restrict experiments before first official attempt; preserve each submitted commit and exact official result. Do not promise an attainable target loss.
