@@ -10,6 +10,8 @@ The GTA VI premiere history is excluded from launch fitting. Early-access events
 
 Target features use only input rows strictly before its own checkpoint. The kit explicitly provides the same2026 comparison library even for its2018 practice case. Accordingly exchangeable-event tests use the supplied reference library without claiming it existed at each historical launch; separately labelled chronological tests train only on earlier dates. All final inference references must finish before2026-11-19T01:00Z. No future GTA outcome is used.
 
+I checked the [Twitch game analytics documentation](https://dev.twitch.tv/docs/insights) and [Streams Charts game endpoint](https://streamscharts.com/api/docs/games) on 2026-11-17. Both document game-level aggregates by calendar day, so neither supplies the hourly labels needed here. The [Tang and Huang research archive](https://github.com/mingt2019/Twitch-Dataset) describes real-time stream samples for 5–21 October 2017 UTC. Its linked full archive returned a sign-in page. No hourly series were added for Gran Turismo Sport, South Park, or The Evil Within 2. An event with a single reported peak still lacks an hourly curve. The supplied kit remains the source for all fitted series, including mixed-platform and multiplayer launches.
+
 ## Input integrity
 
 - p00.in: SHA256 `e9411e07f804e71a16af1703e741239b2c7a7a1105314ea5b0c8cb57a2745319`

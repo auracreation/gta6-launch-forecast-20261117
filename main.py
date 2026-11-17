@@ -7,7 +7,11 @@ from pathlib import Path
 
 LEVELS = (0.05, 0.25, 0.5, 0.75, 0.95)
 Z = (-1.644853626951, -0.674489750196, 0.0, 0.674489750196, 1.644853626951)
-DEFAULT = {'family': 'ridge', 'features': 1, 'ridge': 0.3, 'bandwidth': 0.5, 'distribution': 'empirical', 'spread': 1.0, 'cross_platform': 0.2}
+PHASE_BASE = {'family': 'ridge', 'features': 1, 'bandwidth': 0.65, 'distribution': 'empirical', 'spread': 1.0, 'cross_platform': 0.2}
+DEFAULT = {'family': 'ensemble', 'members': [
+    dict(PHASE_BASE, ridge=3.0, indices=[0, 4, 7]),
+    dict(PHASE_BASE, ridge=15.0, indices=[0, 4, 8]),
+]}
 
 
 def logcount(x):
@@ -24,15 +28,19 @@ def instant(s):
 def score(actual, predicted):
     if not actual or len(actual) != len(predicted):
         raise ValueError('score requires matching nonempty hours')
-    loss, miss, covered = 0.0, 0.0, 0
+    loss, miss, covered, n = 0.0, 0.0, 0, 0
     for y, row in zip(actual, predicted):
+        if y is None:
+            continue
+        n += 1
         ly = logcount(y)
         for tau, q in zip(LEVELS, row):
             d = ly - math.log(q)
             loss += 2 * max(tau * d, (tau - 1) * d)
         miss += abs(ly - math.log(row[2]))
         covered += row[0] <= max(1, y) <= row[4]
-    n = len(actual)
+    if not n:
+        raise ValueError('score requires at least one printed hour')
     return {'loss': loss / (5 * n), 'typical_miss_pct': 100 * math.expm1(miss / n), 'coverage_90': covered / n}
 
 
@@ -42,33 +50,43 @@ def features(case):
     start, cutoff = instant(case['day_start']), instant(case['checkpoint'])
     rows = case.get('history_hourly') or case.get('history') or []
     history = [(instant(x.get('from', x.get('at'))), x) for x in rows]
-    history = [(t, x) for t, x in history if t < cutoff and math.isfinite(float(x['viewers']))]
+    history = [(t, logcount(row['viewers'])) for t, row in history if t < cutoff and math.isfinite(float(row['viewers']))]
     channels = first.get('channels')
     # A missing channel count contributes a neutral ratio, not an invented observation.
     ratio = p - logcount(channels) if channels is not None else 4.0
-    def previous(lo, hi):
-        values = [logcount(x['viewers']) for t, x in history if start + lo * 3600 <= t < start + hi * 3600]
-        return sum(values) / len(values) - p if values else 0.0
+    def past_logs(lo, hi):
+        return [value for t, value in history if start + lo * 3600 <= t < start + hi * 3600]
+
+    def relative(values):
+        return math.fsum(values) / len(values) - p if values else 0.0
+
+    baseline, week = past_logs(-48, -24), past_logs(-168, -48)
+    earlier, latest = past_logs(-5, -2), past_logs(-2, 0)
+    slope = relative(latest) - relative(earlier) if latest and earlier else 0.0
+    prior = baseline or week
+    peak = max(past_logs(-12, 0), default=p)
+    maturity = relative(prior) + p - peak if prior else 0.0
     platforms = case['game'].get('platforms')
     if platforms is None:
         prefix = case.get('notes','').split('real unlock:')[0].lower()
         console = 'pc' not in prefix or 'console only' in prefix
     else:
         console = 'pc' not in platforms.lower()
-    return [p, ratio, previous(-3, 0), previous(-12, -6), previous(-48, -24), previous(-168, -48), float(console)]
+    return [p, ratio, relative(past_logs(-3, 0)), relative(past_logs(-12, -6)),
+            relative(baseline), relative(week), float(console), slope, maturity]
 
 
 def make_case(analog, comparables):
     start = instant(analog['day_start'])
-    rows = sorted(analog['hourly'], key=lambda r: r['from'])
-    day = {int((instant(x['from']) - start) / 3600): x for x in rows if 0 <= instant(x['from']) - start < 86400}
+    rows = [(instant(row['from']) - start, row) for row in sorted(analog['hourly'], key=lambda row: row['from'])]
+    day = {int(offset / 3600): row for offset, row in rows if 0 <= offset < 86400}
     if set(day) != set(range(24)):
         raise ValueError('launch lacks a complete UTC day')
     checkpoint = dt.datetime.fromtimestamp(start + 3600, dt.timezone.utc).isoformat()
     case = {'schema': 'makefun/twitch-ccu-case/v1', 'id': 'validation', 'game': {'name': analog['name'], 'platforms': analog.get('platforms','unknown PC')},
             'day_start': analog['day_start'], 'checkpoint': checkpoint, 'levels': list(LEVELS),
             'known': [dict(day[0], hour=1)], 'forecast': [{'hour': h} for h in range(2,25)],
-            'history_hourly': [x for x in rows if instant(x['from']) < start + 3600],
+            'history_hourly': [row for offset, row in rows if offset < 3600],
             'comparables': [x for x in comparables if x['name'] != analog['name']]}
     return case, [day[h]['viewers'] for h in range(1,24)]
 
@@ -124,12 +142,13 @@ def solve(matrix, rhs):
 
 
 def predict_logs(samples, target, cfg):
-    n, dim = len(samples), cfg['features']
-    xs = [x[:dim] for x, _ in samples]
+    indices = cfg.get('indices', list(range(cfg['features'])))
+    n, dim = len(samples), len(indices)
+    xs = [[x[j] for j in indices] for x, _ in samples]
     mean = [sum(x[j] for x in xs) / n for j in range(dim)]
     sd = [max(0.5, math.sqrt(sum((x[j]-mean[j])**2 for x in xs)/n)) for j in range(dim)]
     xs = [[(x[j] - mean[j]) / sd[j] for j in range(dim)] for x in xs]
-    xt = [(target[j]-mean[j])/sd[j] for j in range(dim)]
+    xt = [(target[k]-mean[j])/sd[j] for j,k in enumerate(indices)]
     bw = cfg['bandwidth']
     weights = [math.exp(-min(100, sum((a-b)**2 for a,b in zip(x,xt)) / (2*bw*bw))) + 1e-8 for x in xs]
     weights = [w * (1.0 if x[6] == target[6] else cfg.get('cross_platform',1.0)) for w,(x,_) in zip(weights,samples)]
@@ -159,39 +178,46 @@ def forecast(case, config=None):
 
 
 def predict(samples, x, cfg):
-    if len(samples) < 4:
-        logs = [[z*0.15*math.sqrt(h) for z in Z] for h in range(1,24)]
-    elif cfg['family'] == 'qr':
-        logs = quantile_fit(samples, x, cfg)
-    else:
-        distributions, weights = predict_logs(samples,x,cfg)
-        logs = []
-        for values in distributions:
-            if cfg['family'] in ('normal','student') or cfg['distribution'] == 'normal':
-                m = sum(v*w for v,w in zip(values,weights))/sum(weights)
-                sd = math.sqrt(sum(w*(v-m)**2 for v,w in zip(values,weights))/sum(weights))
-                zvals = Z if cfg['family'] != 'student' else (-2.015048,-0.726687,0,0.726687,2.015048)
-                row = [m + z*sd*cfg['spread'] for z in zvals]
-            else:
-                row = [quantile(values,weights,t) for t in LEVELS]
-                center = row[2]
-                row = [center+(v-center)*cfg['spread'] for v in row]
-            logs.append(row)
     result = []
-    for h,row in enumerate(logs,2):
+    for h, row in enumerate(log_quantiles(samples, x, cfg), 2):
         q = [round(math.exp(max(-13.815510557964, min(math.log(1e9), x[0]+v))),6) for v in row]
         q = [min(1e9,max(0.000001,v)) for v in q]
         result.append({'hour':h,'q':q})
     return {'hours':result}
 
 
+def log_quantiles(samples, x, cfg):
+    if len(samples) < 4:
+        return [[z * 0.15 * math.sqrt(h) for z in Z] for h in range(1, 24)]
+    if cfg['family'] == 'ensemble':
+        members = [log_quantiles(samples, x, member) for member in cfg['members']]
+        return [[math.fsum(values) / len(members) for values in zip(*rows)] for rows in zip(*members)]
+    if cfg['family'] == 'qr':
+        return quantile_fit(samples, x, cfg)
+    distributions, weights = predict_logs(samples, x, cfg)
+    logs = []
+    for values in distributions:
+        if cfg['family'] in ('normal', 'student') or cfg['distribution'] == 'normal':
+            m = sum(v*w for v,w in zip(values,weights))/sum(weights)
+            sd = math.sqrt(sum(w*(v-m)**2 for v,w in zip(values,weights))/sum(weights))
+            zvals = Z if cfg['family'] != 'student' else (-2.015048,-0.726687,0,0.726687,2.015048)
+            row = [m + z*sd*cfg['spread'] for z in zvals]
+        else:
+            row = [quantile(values,weights,t) for t in LEVELS]
+            center = row[2]
+            row = [center+(v-center)*cfg['spread'] for v in row]
+        logs.append(row)
+    return logs
+
+
 def quantile_fit(samples, target, cfg):
-    dim = cfg['features']
+    indices = cfg.get('indices', list(range(cfg['features'])))
+    dim = len(indices)
     n = len(samples)
-    center = [sum(x[j] for x,_ in samples)/n for j in range(dim)]
-    scales = [max(.5,math.sqrt(sum((x[j]-center[j])**2 for x,_ in samples)/n)) for j in range(dim)]
-    design = [[1.]+[(x[j]-center[j])/scales[j] for j in range(dim)] for x,_ in samples]
-    xt = [1.]+[(target[j]-center[j])/scales[j] for j in range(dim)]
+    center = [sum(x[k] for x,_ in samples)/n for k in indices]
+    scales = [max(.5,math.sqrt(sum((x[k]-center[j])**2 for x,_ in samples)/n)) for j,k in enumerate(indices)]
+    design = [[1.]+[(x[k]-center[j])/scales[j] for j,k in enumerate(indices)] for x,_ in samples]
+    xt = [1.]+[(target[k]-center[j])/scales[j] for j,k in enumerate(indices)]
     weights = [math.exp(-min(100,sum((a-b)**2 for a,b in zip(x,xt))/(2*cfg['bandwidth']**2))) *
                (1 if original[6]==target[6] else cfg.get('cross_platform',1)) + 1e-8
                for x,(original,_) in zip(design,samples)]

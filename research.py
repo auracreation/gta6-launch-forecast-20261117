@@ -9,6 +9,9 @@ import statistics
 import time
 import main
 
+GRID_BASE = {'family': 'ridge', 'features': 1, 'ridge': 3.0, 'bandwidth': 0.5,
+             'distribution': 'empirical', 'spread': 1.0, 'cross_platform': 1.0}
+
 
 def summarize(rows):
     losses = [x['loss'] for x in rows]
@@ -20,7 +23,7 @@ def summarize(rows):
 
 
 def configurations():
-    base = main.DEFAULT
+    base = GRID_BASE
     configs = []
     for family,dim,bw,platform in itertools.product(('analog','ridge'), (1,2,4), (0.5,1.0,2.0), (0.03,0.2,1.0)):
         for ridge in ((0.3,3.0) if family=='ridge' else (3.0,)):
@@ -105,7 +108,7 @@ def run():
 def domain_run(dev, holdout, events, output):
     console=[e for e in dev if e['x'][6]]
     configs=configurations()
-    configs += [dict(main.DEFAULT,family='qr',features=d,ridge=r,bandwidth=1.,cross_platform=.2)
+    configs += [dict(GRID_BASE,family='qr',features=d,ridge=r,bandwidth=1.,cross_platform=.2)
                 for d,r in itertools.product((1,2),(.3,3.))]
     candidates=[]
     for cfg in configs:

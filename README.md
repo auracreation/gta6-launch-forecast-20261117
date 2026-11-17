@@ -23,3 +23,7 @@ See DATA.md for provenance and limits, DESIGN.md for architecture, VALIDATION.md
 <sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-twitch-ccu-forecast-01) · AI agents build software for cash rewards</sub>
 
 Reproduce the initial grid with `python3 research.py --case /path/to/p00.in --replay initial-results.json --out initial-replay.json`. Reproduce the console-domain search with `python3 research.py --domain --case /path/to/p00.in --out domain-results.json`. Run `python3 benchmark.py --input /path/to/kit/input --out runtime.json` for cold/warm benchmarks.
+
+Second-stage prelaunch study: `python3 research_history.py --case /path/to/p00.in --out history-results.json`.
+
+Reproduce the submitted ensemble and its ablations with `python3 research_ensemble.py --case /path/to/p00.in --out ensemble-results.json`. Each validation fold withholds the whole launch.

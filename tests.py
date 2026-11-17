@@ -16,6 +16,11 @@ class ContractTests(unittest.TestCase):
         self.assertAlmostEqual(m['typical_miss_pct'], 19.52, places=2)
         self.assertEqual(m['coverage_90'],1)
 
+    def test_score_omits_unprinted_hours(self):
+        import main
+        rows = [[40, 50, 60, 70, 80], [200] * 5]
+        self.assertEqual(main.score([None, 100], rows), main.score([100], [rows[1]]))
+
 
 class ForecastTests(unittest.TestCase):
     @classmethod
@@ -95,5 +100,29 @@ class ForecastTests(unittest.TestCase):
         logs=main.quantile_fit([sample]*5,sample[0],dict(main.DEFAULT,features=1,bandwidth=1.,ridge=1.))
         for row in logs:
             for q in row:self.assertAlmostEqual(q,0.5,places=5)
+
+    def test_selected_history_feature_changes_forecast(self):
+        import main
+        samples=[([10.,4.,v,0.,0.,0.,1.],[v]*23) for v in (-1.,-.5,0.,.5,1.)]
+        cfg={'family':'ridge','features':1,'indices':[0,2],'ridge':.3,'bandwidth':2.,'distribution':'empirical','spread':1.}
+        a=main.predict(samples,[10.,4.,0.,0.,0.,0.,1.],cfg)['hours'][0]['q'][2]
+        b=main.predict(samples,[10.,4.,1.,0.,0.,0.,1.],cfg)['hours'][0]['q'][2]
+        self.assertGreater(b/a,1.5)
+
+    def test_ensemble_blends_quantiles_on_log_scale(self):
+        import main
+        samples, features = main.training(self.case), main.features(self.case)
+        members = main.DEFAULT['members']
+        a, b = [main.predict(samples, features, member)['hours'] for member in members]
+        result = main.forecast(self.case)['hours']
+        for x, y, blend in zip(a, b, result):
+            for u, v, q in zip(x['q'], y['q'], blend['q']):
+                self.assertTrue(math.isclose(q, math.sqrt(u*v), abs_tol=0.00001))
+
+    def test_research_grid_does_not_inherit_current_model_features(self):
+        import research
+        configs = research.configurations()
+        self.assertEqual({c['features'] for c in configs}, {1, 2, 4})
+        self.assertTrue(all('indices' not in c for c in configs))
 
 if __name__=='__main__':unittest.main()
