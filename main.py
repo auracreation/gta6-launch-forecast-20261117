@@ -7,7 +7,7 @@ from pathlib import Path
 
 LEVELS = (0.05, 0.25, 0.5, 0.75, 0.95)
 Z = (-1.644853626951, -0.674489750196, 0.0, 0.674489750196, 1.644853626951)
-DEFAULT = {'family': 'ridge', 'features': 4, 'ridge': 3.0, 'bandwidth': 2.0, 'distribution': 'empirical', 'spread': 1.0}
+DEFAULT = {'family': 'ridge', 'features': 1, 'ridge': 0.3, 'bandwidth': 0.5, 'distribution': 'empirical', 'spread': 1.0, 'cross_platform': 0.2}
 
 
 def logcount(x):
@@ -49,7 +49,13 @@ def features(case):
     def previous(lo, hi):
         values = [logcount(x['viewers']) for t, x in history if start + lo * 3600 <= t < start + hi * 3600]
         return sum(values) / len(values) - p if values else 0.0
-    return [p, ratio, previous(-3, 0), previous(-12, -6), previous(-48, -24), previous(-168, -48)]
+    platforms = case['game'].get('platforms')
+    if platforms is None:
+        prefix = case.get('notes','').split('real unlock:')[0].lower()
+        console = 'pc' not in prefix or 'console only' in prefix
+    else:
+        console = 'pc' not in platforms.lower()
+    return [p, ratio, previous(-3, 0), previous(-12, -6), previous(-48, -24), previous(-168, -48), float(console)]
 
 
 def make_case(analog, comparables):
@@ -59,7 +65,7 @@ def make_case(analog, comparables):
     if set(day) != set(range(24)):
         raise ValueError('launch lacks a complete UTC day')
     checkpoint = dt.datetime.fromtimestamp(start + 3600, dt.timezone.utc).isoformat()
-    case = {'schema': 'makefun/twitch-ccu-case/v1', 'id': 'validation', 'game': {'name': analog['name']},
+    case = {'schema': 'makefun/twitch-ccu-case/v1', 'id': 'validation', 'game': {'name': analog['name'], 'platforms': analog.get('platforms','unknown PC')},
             'day_start': analog['day_start'], 'checkpoint': checkpoint, 'levels': list(LEVELS),
             'known': [dict(day[0], hour=1)], 'forecast': [{'hour': h} for h in range(2,25)],
             'history_hourly': [x for x in rows if instant(x['from']) < start + 3600],
@@ -126,6 +132,7 @@ def predict_logs(samples, target, cfg):
     xt = [(target[j]-mean[j])/sd[j] for j in range(dim)]
     bw = cfg['bandwidth']
     weights = [math.exp(-min(100, sum((a-b)**2 for a,b in zip(x,xt)) / (2*bw*bw))) + 1e-8 for x in xs]
+    weights = [w * (1.0 if x[6] == target[6] else cfg.get('cross_platform',1.0)) for w,(x,_) in zip(weights,samples)]
     total = sum(weights)
     weights = [w*n/total for w in weights]
     if cfg['family'] in ('analog', 'normal', 'student'):
@@ -154,6 +161,8 @@ def forecast(case, config=None):
 def predict(samples, x, cfg):
     if len(samples) < 4:
         logs = [[z*0.15*math.sqrt(h) for z in Z] for h in range(1,24)]
+    elif cfg['family'] == 'qr':
+        logs = quantile_fit(samples, x, cfg)
     else:
         distributions, weights = predict_logs(samples,x,cfg)
         logs = []
@@ -174,6 +183,31 @@ def predict(samples, x, cfg):
         q = [min(1e9,max(0.000001,v)) for v in q]
         result.append({'hour':h,'q':q})
     return {'hours':result}
+
+
+def quantile_fit(samples, target, cfg):
+    dim = cfg['features']
+    n = len(samples)
+    center = [sum(x[j] for x,_ in samples)/n for j in range(dim)]
+    scales = [max(.5,math.sqrt(sum((x[j]-center[j])**2 for x,_ in samples)/n)) for j in range(dim)]
+    design = [[1.]+[(x[j]-center[j])/scales[j] for j in range(dim)] for x,_ in samples]
+    xt = [1.]+[(target[j]-center[j])/scales[j] for j in range(dim)]
+    weights = [math.exp(-min(100,sum((a-b)**2 for a,b in zip(x,xt))/(2*cfg['bandwidth']**2))) *
+               (1 if original[6]==target[6] else cfg.get('cross_platform',1)) + 1e-8
+               for x,(original,_) in zip(design,samples)]
+    rows = [[] for _ in range(23)]
+    for h in range(23):
+        labels = [y[h] for _,y in samples]
+        for tau in LEVELS:
+            beta = [quantile(labels,weights,tau)]+[0.]*dim
+            for _ in range(30):
+                residuals = [y-sum(a*b for a,b in zip(x,beta)) for x,y in zip(design,labels)]
+                w = [base*(tau if r>=0 else 1-tau)/max(.01,abs(r)) for base,r in zip(weights,residuals)]
+                a = [[sum(v*x[i]*x[j] for v,x in zip(w,design))+(cfg['ridge'] if i==j and i>0 else 0) for j in range(dim+1)] for i in range(dim+1)]
+                b = [[sum(v*x[i]*y for v,x,y in zip(w,design,labels))] for i in range(dim+1)]
+                beta = [v[0] for v in solve(a,b)]
+            rows[h].append(sum(a*b for a,b in zip(xt,beta)))
+    return [sorted(row) for row in rows]
 
 
 def run():

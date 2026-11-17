@@ -79,4 +79,21 @@ class ForecastTests(unittest.TestCase):
             self.assertEqual(row['q'],sorted(row['q']))
             self.assertTrue(all(0<q<=1e9 and math.isfinite(q) for q in row['q']))
 
+    def test_harness_matches_inference(self):
+        import main,research
+        path=os.environ.get('MAKEFUN_TEST_CASE',str(pathlib.Path(__file__).resolve().parents[2]/'work/gta6-twitch-ccu-forecast-01-kit/input/p00.in'))
+        _,events=research.load(path)
+        analog=self.case['comparables'][0]
+        case,_=main.make_case(analog,self.case['comparables'])
+        samples=[e['sample'] for e in events if e['name']!=analog['name']]
+        self.assertEqual(main.training(case),samples)
+        self.assertEqual(main.forecast(case),main.predict(samples,main.features(case),main.DEFAULT))
+
+    def test_quantile_regression_constant_training(self):
+        import main
+        sample=([10.,4.,0.,0.,0.,0.,1.],[0.5]*23)
+        logs=main.quantile_fit([sample]*5,sample[0],dict(main.DEFAULT,features=1,bandwidth=1.,ridge=1.))
+        for row in logs:
+            for q in row:self.assertAlmostEqual(q,0.5,places=5)
+
 if __name__=='__main__':unittest.main()

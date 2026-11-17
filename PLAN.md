@@ -8,9 +8,11 @@ Spec: DESIGN.md and make.fun kit RULES.txt (download snapshot stored outside pub
 Global constraints: exact ln pinball with factor2; strict positive quantiles<=1e9;23 horizons;8s per case; exclude target future and outcome notes.
 Review focus: sparse prehistory; channels null; first print0; target accidentally present in analogs; malicious filename/id or nonfinite JSON.
 
-- [ ] Task1: tests.py metric worked example and cutoff-safe pseudo-case fixtures; run red before implementation. main.py public interfaces score(actual,predictions), make_case(analog,comparables), forecast(case,config=None), run(). research harness imports the same predictor/metric.
-- [ ] Task2: minimal candidate models and grouped experiment harness; verify all folds exclude the event; reserve2026 launches for chronological holdout. Record every configuration, per-event score, calibration and aggregate mean/median/worst/variance. Lock config by training folds; do not tune to official score.
+- [x] Task1: tests.py metric worked example and cutoff-safe pseudo-case fixtures; run red before implementation. main.py public interfaces score(actual,predictions), make_case(analog,comparables), forecast(case,config=None), run(). research harness imports the same predictor/metric.
+- [x] Task2: minimal candidate models and grouped experiment harness; verify all folds exclude the event; reserve2026 launches for chronological holdout. Record every configuration, per-event score, calibration and aggregate mean/median/worst/variance. Lock config by training folds; do not tune to official score.
 - [ ] Task3: numerical, I/O, determinism and performance tests in actual3.13; independent review and fixes; document data provenance, ablations and limits. Commit frozen candidate.
 - [ ] Task4: create public repository with required badges/About/owner claim, bundle native logs unchanged, check gates, submit once, poll official score. Record commit, config, id,timestamp,loss,valid,runtime,coverage,miss. Preserve rollback. Improve only when independent evidence supports it.
 
 Ruling: user's comprehensive execute-and-submit request authorizes ordinary design choices and publication; no extra design approval gate. No existing project/callers to preserve. All callers are tests.py,research.py and the sandbox root entrypoint.
+
+Evidence:11 Python3.13 assertion tests pass. Nested event searches completed, original2026 holdout explicitly marked inspected. Local cold/warm benchmarks complete. Early transcript/intake check returned ok=true with no failed checks. A final read-only review is running.
